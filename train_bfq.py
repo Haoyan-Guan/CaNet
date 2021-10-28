@@ -12,11 +12,22 @@ from dataset_mask_train import Dataset as Dataset_train
 from dataset_mask_val import Dataset as Dataset_val
 import os
 import torch
-from one_shot_network import Res_Deeplab
+from bfq_network import Res_Deeplab
 import torch.nn as nn
 import numpy as np
 
-
+def Class20_15(split, class_chosen):
+    class_list = list(range(1, 21)) #[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+    if split == 3: 
+        sub_list = list(range(1, 16)) #[1,2,3,4,5,6,7,8,9,10,11,12,13,14,15]
+    elif split == 2:
+        sub_list = list(range(1, 11)) + list(range(16, 21)) #[1,2,3,4,5,6,7,8,9,10,16,17,18,19,20]
+    elif split == 1:
+        sub_list = list(range(1, 6)) + list(range(11, 21)) #[1,2,3,4,5,11,12,13,14,15,16,17,18,19,20]
+    elif split == 0:
+        sub_list = list(range(6, 21)) #[6,7,8,9,10,11,12,13,14,15,16,17,18,19,20]
+    subcls = sub_list.index(class_chosen)
+    return subcls
 
 parser = argparse.ArgumentParser()
 
@@ -43,12 +54,10 @@ parser.add_argument('-bs_val',
                     default=64)
 
 
-
 parser.add_argument('-fold',
                     type=int,
                     help='fold',
                     default=0)
-
 
 
 parser.add_argument('-gpu',
@@ -57,12 +66,22 @@ parser.add_argument('-gpu',
                     default='0,1')
 
 
-
 parser.add_argument('-iter_time',
                     type=int,
                     default=5)
 
+#add
+parser.add_argument('-weight_bk',
+                    type=float,
+                    default=1.0)
 
+parser.add_argument('-weight_class',
+                    type=float,
+                    default=0.5)
+
+parser.add_argument('-class_aux',
+                    type=int,
+                    default=15)
 
 options = parser.parse_args()
 
@@ -97,7 +116,7 @@ cudnn.enabled = True
 
 
 # Create network.
-model = Res_Deeplab(num_classes=num_class)
+model = Res_Deeplab(num_classes=num_class, class_aux = options.class_aux)
 #load resnet-50 preatrained parameter
 model = load_resnet50_param(model, stop_layer='layer4')
 model=nn.DataParallel(model,[0])
@@ -107,7 +126,7 @@ turn_off(model)
 
 
 
-checkpoint_dir = 'checkpoint/fo=%d/'% options.fold
+checkpoint_dir = 'exp7_1/fo=%d/'% options.fold
 check_dir(checkpoint_dir)
 
 
@@ -175,21 +194,33 @@ for epoch in range(0,num_epoch):
         query_mask = query_mask[:, 0, :, :]  # remove the second dim,change formation for crossentropy use
         history_mask=(history_mask).cuda(0)
 
-
+        #import ipdb
+        #ipdb.set_trace()
         optimizer.zero_grad()
 
-        pred=model(query_rgb, support_rgb, support_mask,history_mask)
+        subcls = torch.zeros(support_mask.shape[0], dtype=torch.long)
+        for i in range(support_mask.shape[0]):
+            subcls[i] = Class20_15(options.fold, sample_class[i])
+        subcls = subcls.cuda(non_blocking=True)
+        #print('!!!', sample_class, subcls)
+        pred, pred_bk, loss_class_fore, loss_regula=model(query_rgb, support_rgb, support_mask,history_mask, subcls)
         pred_softmax=F.softmax(pred,dim=1).data.cpu()
+        #print('pred_softmax', torch.max(pred_softmax), torch.min(pred_softmax))
+
 
         #update history mask
         for j in range (support_mask.shape[0]):
             sub_index=index[j]
             dataset.history_mask_list[sub_index]=pred_softmax[j]
 
-
         pred = nn.functional.interpolate(pred,size=input_size, mode='bilinear',align_corners=True)#upsample
+        pred_bk = nn.functional.interpolate(pred_bk,size=input_size, mode='bilinear',align_corners=True)#upsample
 
-        loss = loss_calc_v1(pred, query_mask, 0)
+        loss_main = loss_calc_v1(pred, query_mask, 0)
+        query_mask_bk = 1-query_mask
+        loss_main_bk = loss_calc_v1_bk(pred_bk, query_mask_bk, 0)
+        loss = loss_main + options.weight_bk * loss_main_bk + options.weight_class * (loss_class_fore + loss_regula)
+
         loss.backward()
         optimizer.step()
 
@@ -266,7 +297,7 @@ for epoch in range(0,num_epoch):
         if best_iou>highest_iou:
             highest_iou = best_iou
             model = model.eval()
-            torch.save(model.cpu().state_dict(), osp.join(checkpoint_dir, 'model', 'best' '.pth'))
+            torch.save(model.cpu().state_dict(), osp.join(checkpoint_dir, 'model',str(epoch)+'_'+str(best_iou)+'.pth'))
             model = model.train()
             best_epoch = epoch
             print('A better model is saved')

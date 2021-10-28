@@ -81,6 +81,12 @@ def loss_calc_v1(pred, label, gpu):
 
     return criterion(pred, label)
 
+def loss_calc_v1_bk(pred, label, gpu):
+
+    label = label.long()
+    criterion = torch.nn.CrossEntropyLoss(ignore_index=-254).cuda(gpu)
+
+    return criterion(pred, label)
 
 
 def plot_loss(checkpoint_dir,loss_list,save_pred_every):
