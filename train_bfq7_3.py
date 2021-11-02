@@ -127,7 +127,7 @@ turn_off(model)
 
 
 
-checkpoint_dir = 'exp7_3/fo=%d/'% options.fold
+checkpoint_dir = 'exp7_4/fo=%d/'% options.fold
 check_dir(checkpoint_dir)
 
 
