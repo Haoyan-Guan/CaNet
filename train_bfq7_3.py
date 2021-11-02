@@ -8,11 +8,12 @@ import torch.nn.functional as F
 import tqdm
 import random
 import argparse
-from dataset_mask_train import Dataset as Dataset_train
+from dataset_mask_train7_3 import Dataset as Dataset_train
 from dataset_mask_val import Dataset as Dataset_val
 import os
 import torch
-from bfq_network import Res_Deeplab
+#from bfq_network import Res_Deeplab
+from bfq_network7_3 import Res_Deeplab
 import torch.nn as nn
 import numpy as np
 
@@ -126,7 +127,7 @@ turn_off(model)
 
 
 
-checkpoint_dir = 'exp7_1/fo=%d/'% options.fold
+checkpoint_dir = 'exp7_3/fo=%d/'% options.fold
 check_dir(checkpoint_dir)
 
 
@@ -185,7 +186,7 @@ for epoch in range(0,num_epoch):
 
     for i_iter, batch in enumerate(tqdm_gen):
 
-        query_rgb, query_mask,support_rgb, support_mask,history_mask,sample_class,index= batch
+        query_rgb, query_mask,support_rgb, support_mask,history_mask,history_mask_bk,sample_class,index= batch
 
         query_rgb = (query_rgb).cuda(0)
         support_rgb = (support_rgb).cuda(0)
@@ -193,6 +194,7 @@ for epoch in range(0,num_epoch):
         query_mask = (query_mask).cuda(0).long()  # change formation for crossentropy use
         query_mask = query_mask[:, 0, :, :]  # remove the second dim,change formation for crossentropy use
         history_mask=(history_mask).cuda(0)
+        history_mask_bk=(history_mask_bk).cuda(0)
 
         #import ipdb
         #ipdb.set_trace()
@@ -203,8 +205,9 @@ for epoch in range(0,num_epoch):
             subcls[i] = Class20_15(options.fold, sample_class[i])
         subcls = subcls.cuda(non_blocking=True)
         #print('!!!', sample_class, subcls)
-        pred, pred_bk, loss_class_fore, loss_regula=model(query_rgb, support_rgb, support_mask,history_mask, subcls)
+        pred, pred_bk, loss_class_fore, loss_regula=model(query_rgb, support_rgb, support_mask,history_mask,history_mask_bk, subcls)
         pred_softmax=F.softmax(pred,dim=1).data.cpu()
+        pred_bk_softmax=F.softmax(pred_bk,dim=1).data.cpu()
         #print('pred_softmax', torch.max(pred_softmax), torch.min(pred_softmax))
 
 
@@ -212,6 +215,7 @@ for epoch in range(0,num_epoch):
         for j in range (support_mask.shape[0]):
             sub_index=index[j]
             dataset.history_mask_list[sub_index]=pred_softmax[j]
+            dataset.history_mask_bk_list[sub_index]=pred_bk_softmax[j]
 
         pred = nn.functional.interpolate(pred,size=input_size, mode='bilinear',align_corners=True)#upsample
         pred_bk = nn.functional.interpolate(pred_bk,size=input_size, mode='bilinear',align_corners=True)#upsample
@@ -231,7 +235,9 @@ for epoch in range(0,num_epoch):
         #save training loss
         tempory_loss += loss.item()
         if i_iter % save_pred_every == 0 and i_iter != 0:
-
+            tmp_bk = options.weight_bk * loss_main_bk
+            tmp_class = options.weight_class * (loss_class_fore + loss_regula)
+            print('loss:', loss, 'main', loss_main, 'main_bk', tmp_bk, 'class',tmp_class)
             loss_list.append(tempory_loss / save_pred_every)
             plot_loss(checkpoint_dir, loss_list, save_pred_every)
             np.savetxt(os.path.join(checkpoint_dir, 'loss_history.txt'), np.array(loss_list))
