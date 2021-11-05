@@ -66,7 +66,7 @@ def get_10x_lr_params(model):
     b.append(model.module.residule1.parameters())
     b.append(model.module.residule2.parameters())
     b.append(model.module.residule3.parameters())
-    b.append(model.module.FC.parameters())
+    b.append(model.module.Fc.parameters())
     for j in range(len(b)):
         for i in b[j]:
             yield i

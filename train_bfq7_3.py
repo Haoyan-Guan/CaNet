@@ -121,9 +121,8 @@ model = Res_Deeplab(num_classes=num_class, class_aux = options.class_aux)
 #load resnet-50 preatrained parameter
 model = load_resnet50_param(model, stop_layer='layer4')
 model=nn.DataParallel(model,[0])
-
-# disable the  gradients of not optomized layers
 turn_off(model)
+# disable the  gradients of not optomized layers
 
 
 
